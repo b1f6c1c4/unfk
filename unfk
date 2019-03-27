@@ -1,0 +1,159 @@
+#!/bin/bash
+
+usage()
+{
+    cat - <<EOF
+unfk - Remove all `f**k`s in your git commit history
+options:
+    [-h|--help] [-q|--quiet|-v|--verbose] [--install|--uninstall]
+    [-n|--dry-run|-f|--fix] [(-t|-target) <substitute>] [-e <word>]...
+    [[--depth <dep>] (--all | <ref>...)] [-- <file>...]
+EOF
+}
+
+WORDS=()
+REFS=()
+FILES=()
+VERBOSE=10
+while [ $# -gt 0 ]; do
+    key="$1"
+    case "$key" in
+        -h|--help)
+            usage
+            exit
+            ;;
+        --install)
+            INSTALL=INSTALL
+            shift
+            ;;
+        --uninstall)
+            INSTALL=UNINSTALL
+            shift
+            ;;
+        -q|--quiet)
+            VERBOSE=0
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE=100
+            shift
+            ;;
+        -n|--dry-run)
+            FIX=
+            shift
+            ;;
+        -f|--fix)
+            FIX=YES
+            shift
+            ;;
+        -t|--target)
+            TARGET="$2"
+            shift
+            shift
+            ;;
+        -e)
+            WORDS+=("$2")
+            shift
+            shift
+            ;;
+        --depth)
+            DEPTH="$2"
+            shift
+            shift
+            ;;
+        -a|--all)
+            ALL=YES
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            REFS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+FILES=()
+while [ $# -gt 0 ]; do
+    FILES+=("$1")
+    shift
+done
+
+GIT_DIR=$(git rev-parse --git-dir)
+if [ "$?" -ne "0" ]; then
+    echo "I can't find git-dir" >&2
+    exit 2
+fi
+GIT="git --git-dir=$GIT_DIR"
+
+if [ "$INSTALL" = "INSTALL" ]; then
+    if [ "$VERBOSE" -gt "0" ]; then
+        echo "Installing unfk as git pre-commit hook..." >&2
+    fi
+    which unfk >/dev/null
+    if [ "$?" -ne "0" ]; then
+        echo "Warning: unfk is not found in PATH, pre-commit hook may fail to run" >&2
+    fi
+    mkdir -p "$GIT_DIR/hooks/"
+    HK="$GIT_DIR/hooks/pre-commit"
+    if [ -f "$HK" ]; then
+        echo "Moving exiting hook" >&2
+        if [ -f "$HK.bak" ]; then
+            echo "I can't move exiting hook: bak exists" >&2
+            exit 2
+        fi
+        mv "$HK" "$HK.bak"
+        if [ "$?" -ne "0" ]; then
+            echo "I can't move exiting hook" >&2
+            exit 2
+        fi
+    fi
+    cat - <<EOF >$HK
+#!/bin/sh
+
+exec unfk
+EOF
+    chmod +x "$HK"
+    if [ "$VERBOSE" -gt "15" ]; then
+        echo "unfk installed to" "$HK"
+    fi
+    if [ "$VERBOSE" -gt "0" ]; then
+        echo "Done installing unfk." >&2
+    fi
+    exit 0
+fi
+
+if [ "$INSTALL" = "UNINSTALL" ]; then
+    if [ "$VERBOSE" -gt "0" ]; then
+        echo "Uninstalling unfk as git pre-commit hook..." >&2
+    fi
+    HK="$GIT_DIR/hooks/pre-commit"
+    if [ -f "$HK" ]; then
+        if [ "$(tail -n 1 "$HK")" != "exec unfk" ]; then
+            echo "The hook is not unfk, won't remove" >&2
+            exit 2
+        fi
+        rm "$HK"
+        if [ "$?" -ne "0" ]; then
+            echo "I can't remove exiting hook" >&2
+            exit 2
+        fi
+        if [ -f "$HK.bak" ]; then
+            echo "Warning: you may want to recover old hooks" >&2
+        fi
+    else
+        echo "I can't remove exiting hook: file not exist" >&2
+        exit 2
+    fi
+    if [ "$VERBOSE" -gt "15" ]; then
+        echo "unfk uninstalled from" "$HK"
+    fi
+    if [ "$VERBOSE" -gt "0" ]; then
+        echo "Done uninstalling unfk." >&2
+    fi
+    exit 0
+fi
+
