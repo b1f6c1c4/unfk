@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -o pipefail
+
 usage()
 {
     cat - <<EOF
@@ -13,8 +15,8 @@ EOF
 
 WORDS=()
 REFS=()
-FILES=()
 VERBOSE=10
+TARGET="****"
 while [ $# -gt 0 ]; do
     key="$1"
     case "$key" in
@@ -76,18 +78,21 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-FILES=()
-while [ $# -gt 0 ]; do
-    FILES+=("$1")
-    shift
-done
+if [ "${#WORDS[@]}" -eq "0" ]; then
+    # List of common slangs
+    WORDS=( \
+        "\x66\x75\x63\x6b\x0a" \
+        "\x73\x68\x69\x74\x0a" \
+        "\x62\x69\x74\x63\x68\x0a" \
+    )
+fi
 
 GIT_DIR=$(git rev-parse --git-dir)
 if [ "$?" -ne "0" ]; then
     echo "I can't find git-dir" >&2
     exit 2
 fi
-GIT="git --git-dir=$GIT_DIR"
+GIT="git --no-pager --git-dir=$GIT_DIR"
 
 if [ "$INSTALL" = "INSTALL" ]; then
     if [ "$VERBOSE" -gt "0" ]; then
@@ -118,7 +123,7 @@ exec unfk
 EOF
     chmod +x "$HK"
     if [ "$VERBOSE" -gt "15" ]; then
-        echo "unfk installed to" "$HK"
+        echo "unfk installed to" "$HK" >&2
     fi
     if [ "$VERBOSE" -gt "0" ]; then
         echo "Done installing unfk." >&2
@@ -149,7 +154,7 @@ if [ "$INSTALL" = "UNINSTALL" ]; then
         exit 2
     fi
     if [ "$VERBOSE" -gt "15" ]; then
-        echo "unfk uninstalled from" "$HK"
+        echo "unfk uninstalled from" "$HK" >&2
     fi
     if [ "$VERBOSE" -gt "0" ]; then
         echo "Done uninstalling unfk." >&2
@@ -157,3 +162,94 @@ if [ "$INSTALL" = "UNINSTALL" ]; then
     exit 0
 fi
 
+UNFIXED=
+
+fix-file-index() {
+    FILE="$1"
+    if [ "$VERBOSE" -gt "0" ]; then
+        echo "Fixing $FILE" >&2
+    fi
+    MODE=$($GIT ls-files -s -- "$FILE" | cut -d ' ' -f 1)
+    if [ -z "$MODE" ]; then
+        echo "Can't ls-file on $FILE" >&2
+        return 2
+    fi
+    SHA1=$($GIT ls-files -s -- "$FILE" | cut -d ' ' -f 2)
+    SED_SCRIPT=
+    MAGIC='\x02'
+    for E in "${WORDS[@]}"; do
+        SED_SCRIPT="$SED_SCRIPT s${MAGIC}$E${MAGIC}$TARGET${MAGIC}g;"
+    done
+    if [ "$VERBOSE" -gt "15" ]; then
+        echo "Replacing $SED_SCRIPT in $FILE with $SHA1" >&2
+    fi
+    NSHA1=$($GIT cat-file blob "$SHA1" | sed "$SED_SCRIPT" | $GIT hash-object -w --stdin)
+    if [ "$VERBOSE" -gt "15" ]; then
+        echo "Got new $MODE,$NSHA1,$FILE" >&2
+    fi
+    $GIT update-index --cacheinfo "$MODE,$NSHA1,$FILE"
+    return 0
+}
+
+fix-index() {
+    EARGS=()
+    for E in "${WORDS[@]}"; do
+        EARGS+=("-e")
+        EARGS+=("$E")
+    done
+    if [ "$VERBOSE" -gt "15" ]; then
+        echo "Checking" "${EARGS[@]}" "in index file names against" -- "$@" >&2
+    fi
+    TMP=$(mktemp)
+    $GIT ls-files --cached -- "$@" | grep --ignore-case "${EARGS[@]}" >$TMP
+    if [ "$?" -eq "0" ]; then
+        echo "Warning: Found slangs in file names, manual fix is necessary" >&2
+        UNFIXED=YES
+    elif [ "$?" -ne "1" ]; then
+        echo "Errored in grep" >&2
+        rm -f "$TMP"
+        return 2
+    fi
+    if [ "$VERBOSE" -gt "0" ]; then
+        cat "$TMP"
+    fi
+    if [ "$VERBOSE" -gt "15" ]; then
+        echo "Checking" "${EARGS[@]}" "in index file content against" -- "$@" >&2
+    fi
+    $GIT grep --cached -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
+    if [ "$?" -eq "0" ]; then
+        if [ "$VERBOSE" -gt "0" ]; then
+            cat "$TMP"
+        fi
+        if [ ! -z "$FIX" ]; then
+            echo "Found slangs, trying to fix" >&2
+            $GIT grep --cached --name-only -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
+            while IFS= read -r FILE
+            do
+                fix-file-index "$FILE"
+                if [ "$?" -ne "0" ]; then
+                    UNFIXED=YES
+                fi
+            done < "$TMP"
+        else
+            echo "Found slangs" >&2
+            rm -f "$TMP"
+            return 1
+        fi
+    elif [ "$?" -ne "1" ]; then
+        echo "Errored in git grep" >&2
+        rm -f "$TMP"
+        return 2
+    fi
+    rm -f "$TMP"
+    return 0
+}
+
+if [ "${#REFS[@]}" -eq "0" ]; then
+    fix-index
+    exit "$?"
+fi
+
+# TODO
+echo "Not implemented" >&2
+exit 2

@@ -21,4 +21,5 @@ unfk --install            # Run unfk before every commit
     - Return value `2` indicates error.
 - If `-f` is specified:
     - Return value `0` indicates all `f**k`s are fixed (if any);
+    - Return value `1` indicates some `f**k`s are found but can't be fixed;
     - Return value `2` indicates error.
