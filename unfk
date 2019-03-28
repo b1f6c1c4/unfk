@@ -120,7 +120,10 @@ if [ "$INSTALL" = "INSTALL" ]; then
     fi
     mkdir -p "$GIT_DIR/hooks/"
     HK="$GIT_DIR/hooks/pre-commit"
-    if [ -f "$HK" ]; then
+    if [ -f "$HK" ] && [ "$(tail -n 1 "$HK" | cut -d ' ' -f 2 )" = "unfk" ]; then
+        echo "Reinstalling" >&2
+        rm -f "$HK"
+    elif [ -f "$HK" ]; then
         echo "Moving exiting hook" >&2
         if [ -f "$HK.bak" ]; then
             echo "I can't move exiting hook: bak exists" >&2
@@ -135,7 +138,7 @@ if [ "$INSTALL" = "INSTALL" ]; then
     cat - <<EOF >$HK
 #!/bin/sh
 
-exec unfk
+exec unfk -n -t $(printf '%q' "$TARGET")$(printf ' -e %q' "${WORDS[@]}")
 EOF
     chmod +x "$HK"
     if [ "$VERBOSE" -gt "15" ]; then
@@ -153,7 +156,7 @@ if [ "$INSTALL" = "UNINSTALL" ]; then
     fi
     HK="$GIT_DIR/hooks/pre-commit"
     if [ -f "$HK" ]; then
-        if [ "$(tail -n 1 "$HK")" != "exec unfk" ]; then
+        if [ "$(tail -n 1 "$HK" | cut -d ' ' -f 2 )" != "unfk" ]; then
             echo "The hook is not unfk, won't remove" >&2
             exit 2
         fi
