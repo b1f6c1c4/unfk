@@ -7,7 +7,13 @@
 ```sh
 unfk                      # Check if index is f**k'd
 unfk -f -t emmm           # Replace all f**ks with emmm in index
+unfk -f -- -- 1.txt       # Fix 1.txt only
 unfk --install            # Run unfk before every commit
+unfk HEAD                 # Check if HEAD is f**k'd
+unfk -f HEAD              # Fix HEAD
+unfk -f -- master         # Fix the whole history from master
+unfk -f -- HEAD ^HEAD~10  # Fix 10 commits from HEAD
+unfk -f -- --all -- 1.txt # Fix the whole repo, 1.txt only
 ```
 
 ## Exit status
@@ -20,16 +26,6 @@ unfk --install            # Run unfk before every commit
     - Return value `0` indicates all `f**k`s are fixed (if any);
     - Return value `1` indicates some `f**k`s are found but can't be fixed;
     - Return value `2` indicates error.
-
-## TODO
-
-```sh
-unfk HEAD                 # Check if HEAD is f**k'd
-unfk -f HEAD              # Fix HEAD
-unfk -f --depth inf HEAD  # Fix the whole history from HEAD
-unfk -f --depth 10 master # Fix 10 commits from master
-unfk -f --depth inf --all # Fix the whole repo
-```
 
 ## License
 

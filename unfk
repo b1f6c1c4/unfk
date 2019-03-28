@@ -9,7 +9,7 @@ unfk - Remove all `f**k`s in your git commit history
 options:
     [-h|--help] [-q|--quiet|-v|--verbose] [--install|--uninstall]
     [-n|--dry-run|-f|--fix] [(-t|-target) <substitute>] [-e <word>]...
-    [[--depth <dep>] (--all | <ref>...)] [-- <file>...]
+    [(-- <rev-list options>... | <ref>...) [-- <file>...]]
 EOF
 }
 
@@ -17,12 +17,15 @@ WORDS=()
 REFS=()
 VERBOSE=10
 TARGET="****"
-while [ $# -gt 0 ]; do
-    key="$1"
-    case "$key" in
+while [ "$#" -gt 0 ]; do
+    case "$1" in
         -h|--help)
             usage
             exit
+            ;;
+        --filter-branch)
+            AUTOMATED=YES
+            shift
             ;;
         --install)
             INSTALL=INSTALL
@@ -58,15 +61,6 @@ while [ $# -gt 0 ]; do
             shift
             shift
             ;;
-        --depth)
-            DEPTH="$2"
-            shift
-            shift
-            ;;
-        -a|--all)
-            ALL=YES
-            shift
-            ;;
         --)
             shift
             break
@@ -78,12 +72,34 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+REVARGS=()
+if [ "${#REFS[@]}" -ne "0" ]; then
+    for R in "${REFS[@]}"; do
+        REVARGS+=("$R^!")
+    done
+else
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --)
+                shift
+                break
+                ;;
+            *)
+                REVARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+fi
+
+# "$@" are <files>
+
 if [ "${#WORDS[@]}" -eq "0" ]; then
     # List of common slangs
     WORDS=( \
-        "\x66\x75\x63\x6b\x0a" \
-        "\x73\x68\x69\x74\x0a" \
-        "\x62\x69\x74\x63\x68\x0a" \
+        $'\x66\x75\x63\x6b' \
+        $'\x73\x68\x69\x74' \
+        $'\x62\x69\x74\x63\x68' \
     )
 fi
 
@@ -164,6 +180,12 @@ fi
 
 UNFIXED=
 
+SED_SCRIPT=
+MAGIC=$'\x02'
+for E in "${WORDS[@]}"; do
+    SED_SCRIPT="$SED_SCRIPT s${MAGIC}$E${MAGIC}$TARGET${MAGIC}g;"
+done
+
 fix-file-index() {
     FILE="$1"
     if [ "$VERBOSE" -gt "0" ]; then
@@ -175,13 +197,11 @@ fix-file-index() {
         return 2
     fi
     SHA1=$($GIT ls-files -s -- "$FILE" | cut -d ' ' -f 2)
-    SED_SCRIPT=
-    MAGIC='\x02'
-    for E in "${WORDS[@]}"; do
-        SED_SCRIPT="$SED_SCRIPT s${MAGIC}$E${MAGIC}$TARGET${MAGIC}g;"
-    done
     if [ "$VERBOSE" -gt "15" ]; then
-        echo "Replacing $SED_SCRIPT in $FILE with $SHA1" >&2
+        echo "Got old $MODE,$SHA1,$FILE" >&2
+    fi
+    if [ "$VERBOSE" -gt "15" ]; then
+        echo "Will run sed $(printf '%q' "$SED_SCRIPT") on $FILE" >&2
     fi
     NSHA1=$($GIT cat-file blob "$SHA1" | sed "$SED_SCRIPT" | $GIT hash-object -w --stdin)
     if [ "$VERBOSE" -gt "15" ]; then
@@ -201,7 +221,7 @@ fix-index() {
         echo "Checking" "${EARGS[@]}" "in index file names against" -- "$@" >&2
     fi
     TMP=$(mktemp)
-    $GIT ls-files --cached -- "$@" | grep --ignore-case "${EARGS[@]}" >$TMP
+    $GIT ls-files --cached -- "$@" | grep --color=always --ignore-case "${EARGS[@]}" >$TMP
     if [ "$?" -eq "0" ]; then
         echo "Warning: Found slangs in file names, manual fix is necessary" >&2
         UNFIXED=YES
@@ -216,13 +236,15 @@ fix-index() {
     if [ "$VERBOSE" -gt "15" ]; then
         echo "Checking" "${EARGS[@]}" "in index file content against" -- "$@" >&2
     fi
-    $GIT grep --cached -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
+    $GIT grep --color=always --cached -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
     if [ "$?" -eq "0" ]; then
         if [ "$VERBOSE" -gt "0" ]; then
             cat "$TMP"
         fi
         if [ ! -z "$FIX" ]; then
-            echo "Found slangs, trying to fix" >&2
+            if [ "$VERBOSE" -gt "15" ]; then
+                echo "Found slangs, trying to fix" >&2
+            fi
             $GIT grep --cached --name-only -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
             while IFS= read -r FILE
             do
@@ -232,7 +254,9 @@ fix-index() {
                 fi
             done < "$TMP"
         else
-            echo "Found slangs" >&2
+            if [ "$VERBOSE" -gt "15" ]; then
+                echo "Found slangs" >&2
+            fi
             rm -f "$TMP"
             return 1
         fi
@@ -242,14 +266,68 @@ fix-index() {
         return 2
     fi
     rm -f "$TMP"
-    return 0
+    if [ -z "$UNFIXED" ]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
-if [ "${#REFS[@]}" -eq "0" ]; then
-    fix-index
-    exit "$?"
+if [ "${#REVARGS[@]}" -eq "0" ]; then
+    fix-index "$@"
+    RES="$?"
+    if [ -z "$AUTOMATED" ]; then
+        exit "$RES"
+    elif [ "$RES" -eq "0" ]; then
+        exit 0
+    elif [ "$RES" -eq "1" ]; then
+        exit 0
+    else
+        exit "$RES"
+    fi
 fi
 
-# TODO
-echo "Not implemented" >&2
-exit 2
+if [ -z "$0" ]; then
+    echo "Error: I don't exist, please don't use the \`curl | bash\` magic!" >&2
+    exit 2
+fi
+which unfk >/dev/null
+if [ "$?" -ne "0" ]; then
+    echo "Error: unfk is not found in PATH" >&2
+    exit 2
+fi
+
+if [ "$VERBOSE" -gt "15" ]; then
+    INDF=" -v"
+elif [ "$VERBOSE" -gt "0" ]; then
+    INDF=""
+else
+    INDF=" -q"
+fi
+INDF="$INDF -t $(printf '%q' "$TARGET")"
+for E in "${WORDS[@]}"; do
+    INDF="$INDF -e $(printf '%q' "$E")"
+done
+INDF="$INDF --"
+REVARGS+=("--")
+while [ "$#" -gt "0" ]; do
+    INDF="$INDF $(printf '%q' "$1")"
+    REVARGS+=("$1")
+    shift
+done
+if [ ! -z "$FIX" ]; then
+    INDF="$(printf '%q' "$0") -f --filter-branch$INDF"
+else
+    INDF="$(printf '%q' "$0") -n --filter-branch$INDF"
+fi
+INDF="echo '' && $INDF"
+
+MSGF="sed $(printf '%q' "$SED_SCRIPT")"
+if [ "$VERBOSE" -gt "15" ]; then
+    echo "rev-list args:$(printf ' %q' "${REVARGS[@]}")" >&2
+    echo "msg-filter:" "$MSGF" >&2
+    echo "index-filter:" "$INDF" >&2
+fi
+
+$GIT filter-branch --msg-filter "$MSGF" --index-filter "$INDF" -- "${REVARGS[@]}"
+exit "$?"
