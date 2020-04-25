@@ -1,0 +1,14 @@
+git init .
+echo 'A fucking file' > f
+git add f
+rm f
+
+R="$(unfk -v -f)"
+
+[ ! -z "$R" ]
+
+git restore --worktree f
+grep -F '****' f
+
+rm f
+rm -rf .git

@@ -1,0 +1,10 @@
+git init .
+echo 'A fcking file' > 'fucking file'
+git add 'fucking file'
+rm 'fucking file'
+
+R="$(unfk -f && exit 1 || true)"
+
+[ ! -z "$R" ]
+
+rm -rf .git

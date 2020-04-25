@@ -111,7 +111,11 @@ fi
 
 # "$@" are <files>
 
-if [ "${#WORDS[@]}" -eq "0" ]; then
+if [ "$#" -eq 0 ]; then
+    set -- :/
+fi
+
+if [ "${#WORDS[@]}" -eq 0 ]; then
     # List of common slangs
     WORDS=( \
         $'\x66\x75\x63\x6b' \
@@ -128,7 +132,7 @@ if [ "$?" -ne "0" ]; then
 fi
 
 if [ "$INSTALL" = "INSTALL" ]; then
-    if [ "$VERBOSE" -gt "0" ]; then
+    if [ "$VERBOSE" -gt 0 ]; then
         echo "Installing unfk as git pre-commit hook..." >&2
     fi
     which unfk >/dev/null
@@ -158,17 +162,17 @@ if [ "$INSTALL" = "INSTALL" ]; then
 exec unfk -n -t $(printf '%q' "$TARGET")$(printf ' -e %q' "${WORDS[@]}")
 EOF
     chmod +x "$HK"
-    if [ "$VERBOSE" -gt "15" ]; then
+    if [ "$VERBOSE" -gt 15 ]; then
         echo "unfk installed to" "$HK" >&2
     fi
-    if [ "$VERBOSE" -gt "0" ]; then
+    if [ "$VERBOSE" -gt 0 ]; then
         echo "Done installing unfk." >&2
     fi
     exit 0
 fi
 
 if [ "$INSTALL" = "UNINSTALL" ]; then
-    if [ "$VERBOSE" -gt "0" ]; then
+    if [ "$VERBOSE" -gt 0 ]; then
         echo "Uninstalling unfk as git pre-commit hook..." >&2
     fi
     HK="$GIT_DIR/hooks/pre-commit"
@@ -189,10 +193,10 @@ if [ "$INSTALL" = "UNINSTALL" ]; then
         echo "I can't remove exiting hook: file not exist" >&2
         exit 2
     fi
-    if [ "$VERBOSE" -gt "15" ]; then
+    if [ "$VERBOSE" -gt 15 ]; then
         echo "unfk uninstalled from" "$HK" >&2
     fi
-    if [ "$VERBOSE" -gt "0" ]; then
+    if [ "$VERBOSE" -gt 0 ]; then
         echo "Done uninstalling unfk." >&2
     fi
     exit 0
@@ -208,118 +212,121 @@ done
 
 fix-file-index() {
     FILE="$1"
-    if [ "$VERBOSE" -gt "0" ]; then
-        echo "Fixing $FILE" >&2
+    if [ "$VERBOSE" -gt 0 ]; then
+        printf 'Fixing %q\n' "$FILE" >&2
     fi
-    MODE=$(git ls-files -s -- "$FILE" | cut -d ' ' -f 1)
+    MODE="$(git ls-files -s -- "$FILE" | cut -d ' ' -f 1)"
     if [ -z "$MODE" ]; then
-        echo "Can't ls-file on $FILE" >&2
+        printf 'Failed to run git ls-file on %q\n' "$FILE" >&2
         return 2
     fi
-    SHA1=$(git ls-files -s -- "$FILE" | cut -d ' ' -f 2)
-    if [ "$VERBOSE" -gt "15" ]; then
-        echo "Got old $MODE,$SHA1,$FILE" >&2
+    SHA1="$(git ls-files -s -- "$FILE" | cut -d ' ' -f 2)"
+    if [ "$VERBOSE" -gt 15 ]; then
+        printf 'Got old %q, %q, %q\n' "$MODE" "$SHA1" "$FILE" >&2
     fi
-    if [ "$VERBOSE" -gt "15" ]; then
-        echo "Will run sed $(printf '%q' "$SED_SCRIPT") on $FILE" >&2
+    if [ "$VERBOSE" -gt 15 ]; then
+        printf 'Will run sed %s on %q\n' "$(printf '%q ' "$SED_SCRIPT")" "$FILE" >&2
     fi
-    NSHA1=$(git cat-file blob "$SHA1" | sed "$SED_SCRIPT" | $GIT hash-object -w --stdin)
-    if [ "$VERBOSE" -gt "15" ]; then
-        echo "Got new $MODE,$NSHA1,$FILE" >&2
+    NSHA1="$(git cat-file blob "$SHA1" | sed "$SED_SCRIPT" | git hash-object -w --stdin)"
+    if [ "$VERBOSE" -gt 15 ]; then
+        printf 'Got new %q, %q, %q\n' "$MODE" "$NSHA1" "$FILE" >&2
     fi
-    git update-index --cacheinfo "$MODE,$NSHA1,$FILE"
-    return 0
+    exec git update-index --cacheinfo "$MODE,$NSHA1,$FILE"
 }
 
 fix-index() {
-    EARGS=()
+    EARGS=(--ignore-case)
     for E in "${WORDS[@]}"; do
         EARGS+=("-e")
         EARGS+=("$E")
     done
-    if [ "$VERBOSE" -gt "15" ]; then
-        echo "Checking" "${EARGS[@]}" "in index file names against" -- "$@" >&2
+    if [ "$VERBOSE" -gt 15 ]; then
+        printf 'Checking ' >&2
+        printf '%q ' "${EARGS[@]}" >&2
+        printf 'in index file names' >&2
+        if [ "$#" -eq 0 ]; then
+            printf 'among ' >&2
+            printf '%q ' "$@" >&2
+        fi
+        printf '\n' >&2
     fi
-    TMP="$(mktemp)"
-    git ls-files --cached -- "$@" | grep --color=always --ignore-case "${EARGS[@]}" >$TMP
-    if [ "$?" -eq "0" ]; then
-        echo "Warning: Found slangs in file names, manual fix is necessary" >&2
+    UNFIXED=
+    if [ "$VERBOSE" -gt 0 ]; then
+        git ls-files -s --cached -- "$@" | grep --color=always "${EARGS[@]}"
+        R="$?"
+    else
+        git ls-files -s --cached -- "$@" | grep --quiet "${EARGS[@]}"
+        R="$?"
+    fi
+    if [ "$R" -eq 0 ]; then
+        printf 'Warning: Found slangs in file names, manual fix is necessary\n' >&2
         UNFIXED=YES
-    elif [ "$?" -ne "1" ]; then
-        echo "Errored in grep" >&2
-        rm -f "$TMP"
+    elif [ "$R" -ne "1" ]; then
+        printf 'Errored in grep\n' >&2
         return 2
     fi
-    if [ "$VERBOSE" -gt "0" ]; then
-        cat "$TMP"
-    fi
-    if [ "$VERBOSE" -gt "15" ]; then
-        echo "Checking" "${EARGS[@]}" "in index file content against" -- "$@" >&2
-    fi
-    git grep --color=always --cached -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
-    if [ "$?" -eq "0" ]; then
-        if [ "$VERBOSE" -gt "0" ]; then
-            cat "$TMP"
+    if [ "$VERBOSE" -gt 15 ]; then
+        printf 'Checking ' >&2
+        printf '%q ' "${EARGS[@]}" >&2
+        printf 'in index file content' >&2
+        if [ "$#" -eq 0 ]; then
+            printf 'among ' >&2
+            printf '%q ' "$@" >&2
         fi
+        printf '\n' >&2
+    fi
+    if [ "$VERBOSE" -gt 0 ]; then
+        git grep --color=always --cached -I "${EARGS[@]}" -- "$@"
+        R="$?"
+    else
+        git grep --quiet --cached -I "${EARGS[@]}" -- "$@"
+        R="$?"
+    fi
+    if [ "$R" -eq 0 ]; then
         if [ ! -z "$FIX" ]; then
-            if [ "$VERBOSE" -gt "15" ]; then
-                echo "Found slangs, trying to fix" >&2
+            if [ "$VERBOSE" -gt 15 ]; then
+                printf 'Found slangs, trying to fix\n' >&2
             fi
-            git grep --cached --name-only -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
-            while IFS= read -r FILE
-            do
-                fix-file-index "$FILE"
-                if [ "$?" -ne "0" ]; then
-                    UNFIXED=YES
-                fi
-            done < "$TMP"
+            git grep --cached --name-only -I "${EARGS[@]}" -- "$@" | (
+                while IFS= read -r FILE; do
+                    fix-file-index "$FILE" || UNFIXED=YES
+                done
+            )
         else
-            if [ "$VERBOSE" -gt "15" ]; then
-                echo "Found slangs" >&2
+            if [ "$VERBOSE" -gt 15 ]; then
+                printf 'Found slangs\n' >&2
             fi
-            rm -f "$TMP"
             return 1
         fi
     elif [ "$?" -ne "1" ]; then
-        echo "Errored in git grep" >&2
-        rm -f "$TMP"
+        printf 'Errored in git grep\n' >&2
         return 2
     fi
-    rm -f "$TMP"
-    if [ -z "$UNFIXED" ]; then
-        return 0
-    else
-        return 1
-    fi
+    [ -z "$UNFIXED" ] && return 0 || return 1
 }
 
-if [ "${#REVARGS[@]}" -eq "0" ]; then
+if [ "${#REVARGS[@]}" -eq 0 ]; then
     fix-index "$@"
     RES="$?"
-    if [ -z "$AUTOMATED" ]; then
-        exit "$RES"
-    elif [ "$RES" -eq "0" ]; then
-        exit 0
-    elif [ "$RES" -eq "1" ]; then
-        exit 0
-    else
-        exit "$RES"
-    fi
+    [ -z "$AUTOMATED" ] && exit "$RES"
+    [ "$RES" -eq 0 ] && exit 0
+    [ "$RES" -eq 1 ] && exit 0
+    exit "$RES"
 fi
 
 if [ -z "$0" ]; then
-    echo "Error: I don't exist, please don't use the \`curl | bash\` magic!" >&2
+    printf 'Error: The script does not exist on disk, please do NOT use the `curl | bash` magic!\n' >&2
     exit 2
 fi
 which unfk >/dev/null
 if [ "$?" -ne "0" ]; then
-    echo "Error: unfk is not found in PATH" >&2
+    printf 'Error: unfk is not found in PATH\n' >&2
     exit 2
 fi
 
-if [ "$VERBOSE" -gt "15" ]; then
+if [ "$VERBOSE" -gt 15 ]; then
     INDF=" -v"
-elif [ "$VERBOSE" -gt "0" ]; then
+elif [ "$VERBOSE" -gt 0 ]; then
     INDF=""
 else
     INDF=" -q"
@@ -330,7 +337,7 @@ for E in "${WORDS[@]}"; do
 done
 INDF="$INDF --"
 REVARGS+=("--")
-while [ "$#" -gt "0" ]; do
+while [ "$#" -gt 0 ]; do
     INDF="$INDF $(printf '%q' "$1")"
     REVARGS+=("$1")
     shift
@@ -343,7 +350,7 @@ fi
 INDF="echo '' && $INDF"
 
 MSGF="sed $(printf '%q' "$SED_SCRIPT")"
-if [ "$VERBOSE" -gt "15" ]; then
+if [ "$VERBOSE" -gt 15 ]; then
     echo "rev-list args:$(printf ' %q' "${REVARGS[@]}")" >&2
     echo "msg-filter:" "$MSGF" >&2
     echo "index-filter:" "$INDF" >&2

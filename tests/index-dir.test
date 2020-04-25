@@ -1,0 +1,12 @@
+git init .
+echo 'A fucking file' > f
+git add f
+rm f
+
+mkdir dir
+R="$(cd dir && unfk && exit 1 || true)"
+
+[ ! -z "$R" ]
+
+rmdir dir
+rm -rf .git

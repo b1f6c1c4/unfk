@@ -1,0 +1,10 @@
+git init .
+echo 'A fcking file' > f
+git add f
+rm f
+
+R="$(unfk)"
+
+[ -z "$R" ]
+
+rm -rf .git
