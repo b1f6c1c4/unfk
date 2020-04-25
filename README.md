@@ -2,7 +2,7 @@
 
 > Remove all `f**k`s in your git commit history
 
-Note: you can use `unfk -e <your_password_here> --all` to check if the repo contains your password, and use `-f` to remove it.
+Note: you can use `unfk -e <your_password_here>` to check if the index contains your password, and use `-f` to remove it.
 
 ## Usage
 
@@ -13,19 +13,21 @@ unfk -f -- 1.txt          # Fix 1.txt only
 unfk --install            # Run unfk before every commit
 ```
 
-Note: commit message and tag message will be scanned, too.
-
-Note: working directory will not be touched; however, `git filter-branch` requires that working dir is clean. So `git stash` if you need.
-
 ## Install
+
+We recommand you to install it using [Git-Get](https://github.com/b1f6c1c4/git-get).
 
 Locally: `~/.local/bin/unfk`
 ```sh
+git get b1f6c1c4/unfk -f -o ~/.local/bin/unfk -- unfk
+# Or, without git-get:
 curl -fSSL https://raw.githubusercontent.com/b1f6c1c4/unfk/master/unfk > ~/.local/bin/unfk && chmod +x ~/.local/bin/unfk
 ```
 
 Globally (with sudo): `/usr/bin/unfk`
 ```sh
+git get b1f6c1c4/unfk -f -o- -- unfk | sudo tee /usr/bin/unfk && sudo chmod +x /usr/bin/unfk
+# Or, without git-get:
 curl -fSSL https://raw.githubusercontent.com/b1f6c1c4/unfk/master/unfk | sudo tee /usr/bin/unfk >/dev/null && sudo chmod +x /usr/bin/unfk
 ```
 
