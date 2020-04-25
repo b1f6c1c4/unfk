@@ -2,20 +2,20 @@
 
 > Remove all `f**k`s in your git commit history
 
-Note: you can use `unfk -e <your_password_here> -- --all` to check if the repo contains your password, and use `-f` to remove it.
+Note: you can use `unfk -e <your_password_here> --all` to check if the repo contains your password, and use `-f` to remove it.
 
 ## Usage
 
 ```sh
 unfk                      # Check if index is f**k'd
 unfk -f -e 114 -t 514     # Replace all 114 with 514 in index
-unfk -f -- -- 1.txt       # Fix 1.txt only
+unfk -f -- 1.txt          # Fix 1.txt only
 unfk --install            # Run unfk before every commit
 unfk HEAD                 # Check if HEAD is f**k'd
 unfk -f HEAD              # Fix HEAD, one commit only
-unfk -f -- master         # Fix the whole history from master
-unfk -f -- HEAD ^HEAD~10  # Fix 10 commits from HEAD
-unfk -f -- --all -- 1.txt # Fix the whole repo, 1.txt only
+unfk -f - master          # Fix the whole history from master
+unfk -f - HEAD ^HEAD~10   # Fix 10 commits from HEAD
+unfk -f --all -- 1.txt    # Fix the whole repo, 1.txt only
 ```
 
 Note: commit message and tag message will be scanned, too.

@@ -1,18 +1,24 @@
 #!/bin/bash
 
-set -o pipefail
+set -uo pipefail
 
 usage()
 {
     cat - <<EOF
-unfk - Remove all `f**k`s in your git commit history
+unfk - Remove all f**ks in your git commit history
 options:
-    [-h|--help] [-q|--quiet|-v|--verbose] [--install|--uninstall]
-    [-n|--dry-run|-f|--fix] [(-t|-target) <substitute>] [-e <word>]...
-    [(-- <rev-list options>... | <ref>...) [-- <file>...]]
+    [-h|--help] [-q|--quiet|-v|--verbose] [-I|--install|-U|--uninstall]
+    [-n|--dry-run|-f|--fix] [(-t|--target) <substitute>] [-e <word>]...
+    [[-] <rev-list options>... | <ref>...]
+    [-- <file>...]
 EOF
 }
 
+AUTOMATED=
+INSTALL=
+VERBOSE=
+FIX=
+SKIP_REV=
 WORDS=()
 REFS=()
 VERBOSE=10
@@ -27,11 +33,11 @@ while [ "$#" -gt 0 ]; do
             AUTOMATED=YES
             shift
             ;;
-        --install)
+        -I|--install)
             INSTALL=INSTALL
             shift
             ;;
-        --uninstall)
+        -U|--uninstall)
             INSTALL=UNINSTALL
             shift
             ;;
@@ -61,35 +67,46 @@ while [ "$#" -gt 0 ]; do
             shift
             shift
             ;;
+        -)
+            shift
+            break
+            ;;
         --)
+            SKIP_REV=YES
             shift
             break
             ;;
         *)
-            REFS+=("$1")
+            if [[ "$1" =~ ^- ]]; then
+                REVARGS+=("$1")
+            else
+                REFS+=("$1")
+            fi
             shift
             ;;
     esac
 done
 
 REVARGS=()
-if [ "${#REFS[@]}" -ne "0" ]; then
-    for R in "${REFS[@]}"; do
-        REVARGS+=("$R^!")
-    done
-else
-    while [ "$#" -gt 0 ]; do
-        case "$1" in
-            --)
-                shift
-                break
-                ;;
-            *)
-                REVARGS+=("$1")
-                shift
-                ;;
-        esac
-    done
+if [ -z "$SKIP_REV" ]; then
+    if [ "${#REFS[@]}" -ne "0" ]; then
+        for R in "${REFS[@]}"; do
+            REVARGS+=("$R^!")
+        done
+    else
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --)
+                    shift
+                    break
+                    ;;
+                *)
+                    REVARGS+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+    fi
 fi
 
 # "$@" are <files>
@@ -103,12 +120,12 @@ if [ "${#WORDS[@]}" -eq "0" ]; then
     )
 fi
 
-GIT_DIR=$(git rev-parse --git-dir)
+export GIT_PAGER=
+export GIT_DIR="$(realpath "$(git rev-parse --git-dir)")"
 if [ "$?" -ne "0" ]; then
     echo "I can't find git-dir" >&2
     exit 2
 fi
-GIT="git --no-pager --git-dir=$GIT_DIR"
 
 if [ "$INSTALL" = "INSTALL" ]; then
     if [ "$VERBOSE" -gt "0" ]; then
@@ -194,23 +211,23 @@ fix-file-index() {
     if [ "$VERBOSE" -gt "0" ]; then
         echo "Fixing $FILE" >&2
     fi
-    MODE=$($GIT ls-files -s -- "$FILE" | cut -d ' ' -f 1)
+    MODE=$(git ls-files -s -- "$FILE" | cut -d ' ' -f 1)
     if [ -z "$MODE" ]; then
         echo "Can't ls-file on $FILE" >&2
         return 2
     fi
-    SHA1=$($GIT ls-files -s -- "$FILE" | cut -d ' ' -f 2)
+    SHA1=$(git ls-files -s -- "$FILE" | cut -d ' ' -f 2)
     if [ "$VERBOSE" -gt "15" ]; then
         echo "Got old $MODE,$SHA1,$FILE" >&2
     fi
     if [ "$VERBOSE" -gt "15" ]; then
         echo "Will run sed $(printf '%q' "$SED_SCRIPT") on $FILE" >&2
     fi
-    NSHA1=$($GIT cat-file blob "$SHA1" | sed "$SED_SCRIPT" | $GIT hash-object -w --stdin)
+    NSHA1=$(git cat-file blob "$SHA1" | sed "$SED_SCRIPT" | $GIT hash-object -w --stdin)
     if [ "$VERBOSE" -gt "15" ]; then
         echo "Got new $MODE,$NSHA1,$FILE" >&2
     fi
-    $GIT update-index --cacheinfo "$MODE,$NSHA1,$FILE"
+    git update-index --cacheinfo "$MODE,$NSHA1,$FILE"
     return 0
 }
 
@@ -223,8 +240,8 @@ fix-index() {
     if [ "$VERBOSE" -gt "15" ]; then
         echo "Checking" "${EARGS[@]}" "in index file names against" -- "$@" >&2
     fi
-    TMP=$(mktemp)
-    $GIT ls-files --cached -- "$@" | grep --color=always --ignore-case "${EARGS[@]}" >$TMP
+    TMP="$(mktemp)"
+    git ls-files --cached -- "$@" | grep --color=always --ignore-case "${EARGS[@]}" >$TMP
     if [ "$?" -eq "0" ]; then
         echo "Warning: Found slangs in file names, manual fix is necessary" >&2
         UNFIXED=YES
@@ -239,7 +256,7 @@ fix-index() {
     if [ "$VERBOSE" -gt "15" ]; then
         echo "Checking" "${EARGS[@]}" "in index file content against" -- "$@" >&2
     fi
-    $GIT grep --color=always --cached -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
+    git grep --color=always --cached -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
     if [ "$?" -eq "0" ]; then
         if [ "$VERBOSE" -gt "0" ]; then
             cat "$TMP"
@@ -248,7 +265,7 @@ fix-index() {
             if [ "$VERBOSE" -gt "15" ]; then
                 echo "Found slangs, trying to fix" >&2
             fi
-            $GIT grep --cached --name-only -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
+            git grep --cached --name-only -I --ignore-case "${EARGS[@]}" -- "$@" >$TMP
             while IFS= read -r FILE
             do
                 fix-file-index "$FILE"
@@ -332,5 +349,4 @@ if [ "$VERBOSE" -gt "15" ]; then
     echo "index-filter:" "$INDF" >&2
 fi
 
-$GIT filter-branch --msg-filter "$MSGF" --index-filter "$INDF" -- "${REVARGS[@]}"
-exit "$?"
+exec git filter-branch --msg-filter "$MSGF" --index-filter "$INDF" -- "${REVARGS[@]}"
