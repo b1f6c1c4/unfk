@@ -4,7 +4,7 @@ git add f
 rm f
 
 mkdir dir
-R="$(cd dir && unfk -v -f)"
+R="$(cd dir && unfk -f)"
 
 [ ! -z "$R" ]
 

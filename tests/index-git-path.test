@@ -1,0 +1,13 @@
+git init .
+mkdir dir
+echo 'A fcking file' > f
+echo 'Another fucking file' > dir/f
+git add f dir/f
+rm f dir/f
+
+R="$(cd dir && unfk -- :/f)"
+
+[ -z "$R" ]
+
+rmdir dir
+rm -rf .git

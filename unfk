@@ -111,10 +111,6 @@ fi
 
 # "$@" are <files>
 
-if [ "$#" -eq 0 ]; then
-    set -- :/
-fi
-
 if [ "${#WORDS[@]}" -eq 0 ]; then
     # List of common slangs
     WORDS=( \
@@ -124,12 +120,24 @@ if [ "${#WORDS[@]}" -eq 0 ]; then
     )
 fi
 
+export PAGER=
 export GIT_PAGER=
-export GIT_DIR="$(realpath "$(git rev-parse --git-dir)")"
-if [ "$?" -ne "0" ]; then
+GIT_DIR="$(realpath "$(git rev-parse --git-dir)")"
+if [ -z "$GIT_DIR" ]; then
     echo "I can't find git-dir" >&2
     exit 2
 fi
+
+PREFIX="$(git rev-parse --show-prefix)"
+export GIT_DIR
+if [ "$#" -eq 0 ]; then
+    set -- :/
+else
+    [ "$VERBOSE" -gt 50 ] && printf 'PREFIX: %q\n' "$PREFIX" >&2
+    eval "set $(git rev-parse --sq --prefix "$PREFIX" -- "$@")"
+fi
+
+[ "$VERBOSE" -gt 50 ] && printf 'To be fixed: %q\n' "$@" >&2
 
 if [ "$INSTALL" = "INSTALL" ]; then
     if [ "$VERBOSE" -gt 0 ]; then
@@ -212,25 +220,17 @@ done
 
 fix-file-index() {
     FILE="$1"
-    if [ "$VERBOSE" -gt 0 ]; then
-        printf 'Fixing %q\n' "$FILE" >&2
-    fi
+    [ "$VERBOSE" -gt 0 ] && printf 'Fixing %q\n' "$FILE" >&2
     MODE="$(git ls-files -s -- "$FILE" | cut -d ' ' -f 1)"
     if [ -z "$MODE" ]; then
         printf 'Failed to run git ls-file on %q\n' "$FILE" >&2
         return 2
     fi
     SHA1="$(git ls-files -s -- "$FILE" | cut -d ' ' -f 2)"
-    if [ "$VERBOSE" -gt 15 ]; then
-        printf 'Got old %q, %q, %q\n' "$MODE" "$SHA1" "$FILE" >&2
-    fi
-    if [ "$VERBOSE" -gt 15 ]; then
-        printf 'Will run sed %s on %q\n' "$(printf '%q ' "$SED_SCRIPT")" "$FILE" >&2
-    fi
+    [ "$VERBOSE" -gt 15 ] && printf 'Got old %q, %q, %q\n' "$MODE" "$SHA1" "$FILE" >&2
+    [ "$VERBOSE" -gt 15 ] && printf 'Will run sed %s on %q\n' "$(printf '%q ' "$SED_SCRIPT")" "$FILE" >&2
     NSHA1="$(git cat-file blob "$SHA1" | sed "$SED_SCRIPT" | git hash-object -w --stdin)"
-    if [ "$VERBOSE" -gt 15 ]; then
-        printf 'Got new %q, %q, %q\n' "$MODE" "$NSHA1" "$FILE" >&2
-    fi
+    [ "$VERBOSE" -gt 15 ] && printf 'Got new %q, %q, %q\n' "$MODE" "$NSHA1" "$FILE" >&2
     exec git update-index --cacheinfo "$MODE,$NSHA1,$FILE"
 }
 
@@ -243,11 +243,8 @@ fix-index() {
     if [ "$VERBOSE" -gt 15 ]; then
         printf 'Checking ' >&2
         printf '%q ' "${EARGS[@]}" >&2
-        printf 'in index file names' >&2
-        if [ "$#" -eq 0 ]; then
-            printf 'among ' >&2
-            printf '%q ' "$@" >&2
-        fi
+        printf 'in index file names among ' >&2
+        printf '%q ' "$@" >&2
         printf '\n' >&2
     fi
     UNFIXED=
@@ -268,11 +265,8 @@ fix-index() {
     if [ "$VERBOSE" -gt 15 ]; then
         printf 'Checking ' >&2
         printf '%q ' "${EARGS[@]}" >&2
-        printf 'in index file content' >&2
-        if [ "$#" -eq 0 ]; then
-            printf 'among ' >&2
-            printf '%q ' "$@" >&2
-        fi
+        printf 'in index file content among ' >&2
+        printf '%q ' "$@" >&2
         printf '\n' >&2
     fi
     if [ "$VERBOSE" -gt 0 ]; then
@@ -284,18 +278,14 @@ fix-index() {
     fi
     if [ "$R" -eq 0 ]; then
         if [ ! -z "$FIX" ]; then
-            if [ "$VERBOSE" -gt 15 ]; then
-                printf 'Found slangs, trying to fix\n' >&2
-            fi
+            [ "$VERBOSE" -gt 15 ] && printf 'Found slangs, trying to fix\n' >&2
             git grep --cached --name-only -I "${EARGS[@]}" -- "$@" | (
                 while IFS= read -r FILE; do
                     fix-file-index "$FILE" || UNFIXED=YES
                 done
             )
         else
-            if [ "$VERBOSE" -gt 15 ]; then
-                printf 'Found slangs\n' >&2
-            fi
+            [ "$VERBOSE" -gt 15 ] && printf 'Found slangs\n' >&2
             return 1
         fi
     elif [ "$?" -ne "1" ]; then

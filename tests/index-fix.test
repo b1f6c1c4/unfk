@@ -3,7 +3,7 @@ echo 'A fucking file' > f
 git add f
 rm f
 
-R="$(unfk -v -f)"
+R="$(unfk -f)"
 
 [ ! -z "$R" ]
 
