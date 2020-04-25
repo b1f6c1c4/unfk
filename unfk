@@ -9,18 +9,14 @@ unfk - Remove all f**ks in your git commit history
 options:
     [-h|--help] [-q|--quiet|-v|--verbose] [-I|--install|-U|--uninstall]
     [-n|--dry-run|-f|--fix] [(-t|--target) <substitute>] [-e <word>]...
-    [[-] <rev-list options>... | <ref>...]
     [-- <file>...]
 EOF
 }
 
-AUTOMATED=
 INSTALL=
 VERBOSE=
 FIX=
-SKIP_REV=
 WORDS=()
-REFS=()
 VERBOSE=10
 TARGET="****"
 while [ "$#" -gt 0 ]; do
@@ -28,10 +24,6 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             usage
             exit
-            ;;
-        --filter-branch)
-            AUTOMATED=YES
-            shift
             ;;
         -I|--install)
             INSTALL=INSTALL
@@ -67,47 +59,16 @@ while [ "$#" -gt 0 ]; do
             shift
             shift
             ;;
-        -)
-            shift
-            break
-            ;;
         --)
-            SKIP_REV=YES
             shift
             break
             ;;
         *)
-            if [[ "$1" =~ ^- ]]; then
-                REVARGS+=("$1")
-            else
-                REFS+=("$1")
-            fi
-            shift
+            printf 'What does %s mean?\n' "$1" >&2
+            exit 2
             ;;
     esac
 done
-
-REVARGS=()
-if [ -z "$SKIP_REV" ]; then
-    if [ "${#REFS[@]}" -ne "0" ]; then
-        for R in "${REFS[@]}"; do
-            REVARGS+=("$R^!")
-        done
-    else
-        while [ "$#" -gt 0 ]; do
-            case "$1" in
-                --)
-                    shift
-                    break
-                    ;;
-                *)
-                    REVARGS+=("$1")
-                    shift
-                    ;;
-            esac
-        done
-    fi
-fi
 
 # "$@" are <files>
 
@@ -138,6 +99,12 @@ else
 fi
 
 [ "$VERBOSE" -gt 50 ] && printf 'To be fixed: %q\n' "$@" >&2
+
+if [ "$VERBOSE" -gt 0 ]; then
+    COLOR="--color=always"
+else
+    COLOR="--quiet"
+fi
 
 if [ "$INSTALL" = "INSTALL" ]; then
     if [ "$VERBOSE" -gt 0 ]; then
@@ -248,13 +215,8 @@ fix-index() {
         printf '\n' >&2
     fi
     UNFIXED=
-    if [ "$VERBOSE" -gt 0 ]; then
-        git ls-files -s --cached -- "$@" | grep --color=always "${EARGS[@]}"
-        R="$?"
-    else
-        git ls-files -s --cached -- "$@" | grep --quiet "${EARGS[@]}"
-        R="$?"
-    fi
+    git ls-files -s --cached -- "$@" | grep "$COLOR" "${EARGS[@]}"
+    R="$?"
     if [ "$R" -eq 0 ]; then
         printf 'Warning: Found slangs in file names, manual fix is necessary\n' >&2
         UNFIXED=YES
@@ -269,13 +231,8 @@ fix-index() {
         printf '%q ' "$@" >&2
         printf '\n' >&2
     fi
-    if [ "$VERBOSE" -gt 0 ]; then
-        git grep --color=always --cached -I "${EARGS[@]}" -- "$@"
-        R="$?"
-    else
-        git grep --quiet --cached -I "${EARGS[@]}" -- "$@"
-        R="$?"
-    fi
+    git grep "$COLOR" --cached -I "${EARGS[@]}" -- "$@"
+    R="$?"
     if [ "$R" -eq 0 ]; then
         if [ ! -z "$FIX" ]; then
             [ "$VERBOSE" -gt 15 ] && printf 'Found slangs, trying to fix\n' >&2
@@ -288,62 +245,12 @@ fix-index() {
             [ "$VERBOSE" -gt 15 ] && printf 'Found slangs\n' >&2
             return 1
         fi
-    elif [ "$?" -ne "1" ]; then
+    elif [ "$R" -ne "1" ]; then
         printf 'Errored in git grep\n' >&2
         return 2
     fi
     [ -z "$UNFIXED" ] && return 0 || return 1
 }
 
-if [ "${#REVARGS[@]}" -eq 0 ]; then
-    fix-index "$@"
-    RES="$?"
-    [ -z "$AUTOMATED" ] && exit "$RES"
-    [ "$RES" -eq 0 ] && exit 0
-    [ "$RES" -eq 1 ] && exit 0
-    exit "$RES"
-fi
-
-if [ -z "$0" ]; then
-    printf 'Error: The script does not exist on disk, please do NOT use the `curl | bash` magic!\n' >&2
-    exit 2
-fi
-which unfk >/dev/null
-if [ "$?" -ne "0" ]; then
-    printf 'Error: unfk is not found in PATH\n' >&2
-    exit 2
-fi
-
-if [ "$VERBOSE" -gt 15 ]; then
-    INDF=" -v"
-elif [ "$VERBOSE" -gt 0 ]; then
-    INDF=""
-else
-    INDF=" -q"
-fi
-INDF="$INDF -t $(printf '%q' "$TARGET")"
-for E in "${WORDS[@]}"; do
-    INDF="$INDF -e $(printf '%q' "$E")"
-done
-INDF="$INDF --"
-REVARGS+=("--")
-while [ "$#" -gt 0 ]; do
-    INDF="$INDF $(printf '%q' "$1")"
-    REVARGS+=("$1")
-    shift
-done
-if [ ! -z "$FIX" ]; then
-    INDF="$(printf '%q' "$0") -f --filter-branch$INDF"
-else
-    INDF="$(printf '%q' "$0") -n --filter-branch$INDF"
-fi
-INDF="echo '' && $INDF"
-
-MSGF="sed $(printf '%q' "$SED_SCRIPT")"
-if [ "$VERBOSE" -gt 15 ]; then
-    echo "rev-list args:$(printf ' %q' "${REVARGS[@]}")" >&2
-    echo "msg-filter:" "$MSGF" >&2
-    echo "index-filter:" "$INDF" >&2
-fi
-
-exec git filter-branch --msg-filter "$MSGF" --index-filter "$INDF" -- "${REVARGS[@]}"
+fix-index "$@"
+exit "$?"
